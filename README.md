@@ -6,7 +6,9 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 ![三套外观](docs/showcase-outfits.png)
 
-![蓝白花边界面](docs/showcase-ui.png)
+![说话气泡](docs/showcase-bubbles.png)
+
+![蓝白花边菜单与面板](docs/showcase-ui.png)
 
 ## 功能
 
