@@ -85,6 +85,20 @@ pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "
 ```
 
 产物在 `dist/大肥鱼桌宠.exe`，对方双击即用，无需安装 Python。
+
+## 推送到自己的 GitHub 仓库
+
+本仓库对应 `https://github.com/decade-0110/dafeiyu_pet.git`（工程文件在仓库根目录）。
+代码更新后一条命令即可推送：
+
+```bash
+git push -f decade HEAD:refs/heads/main
+```
+
+- `git remote -v` 里 `decade` 指向上面那个仓库，`origin` 指向上游原项目 `1190fasheqi/dafeiyu-pet`，别推错。
+- 首次推送会弹出 GitHub 登录（浏览器授权或粘贴 Personal Access Token），之后 Git 凭据管理器会记住。
+- 如果你的网络需要代理（本机 git 配的是 `http://127.0.0.1:7890`），推送报 TLS/凭据类错误时加一个参数：
+  `git -c http.sslBackend=openssl push -f decade HEAD:refs/heads/main`
 （杀毒软件可能对 PyInstaller 产物误报，加信任即可。）
 
 ## 更换形象
