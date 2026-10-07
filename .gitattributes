@@ -1,0 +1,16 @@
+# 统一按 LF 入库，避免 Windows 下 CRLF 造成的整文件 diff 噪音
+* text=auto eol=lf
+
+# 二进制资源不要做换行符转换
+*.png binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.ttc binary
+*.jpg binary
+
+# 文本类文件按 UTF-8 处理
+*.py text
+*.md text
+*.json text
+*.bat text eol=crlf
