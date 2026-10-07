@@ -4,6 +4,10 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 基于三视图素材（正面 / 侧面 / 背面），用 Python + PySide6 实现，无边框透明置顶窗口。
 
+![三套外观](docs/showcase-outfits.png)
+
+![蓝白花边界面](docs/showcase-ui.png)
+
 ## 功能
 
 - **三视图行走**：左右走用侧面（自动镜像）、向上走用背面、向下走用正面
@@ -142,6 +146,7 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 | sprites/ | 默认外观「深海女仆」精灵图（正面/侧面/背面 各尺寸 + 图标） |
 | sprites/outfits/ | 各套换装精灵（`<id>/` + `manifest.json`）；打包会自动带上 |
 | assets/fonts/ | 内置字体（放 `.ttf/.otf` 即自动加载并优先使用；附得意黑 Smiley Sans，SIL OFL） |
+| docs/ | README 展示图（三套外观 + 花边界面，由 `build/make_showcase.py` 渲染生成） |
 | 启动桌宠.bat | 启动脚本（自动选择 venv 或系统 Python） |
 | requirements.txt | 依赖 |
 | 桌宠.spec | PyInstaller 打包配置（含新依赖收集） |
