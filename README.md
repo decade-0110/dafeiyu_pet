@@ -89,6 +89,7 @@ pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "
 ```
 
 产物在 `dist/大肥鱼桌宠.exe`，对方双击即用，无需安装 Python。
+（杀毒软件可能对 PyInstaller 产物误报，加信任即可。）
 
 ## 推送到自己的 GitHub 仓库
 
@@ -103,7 +104,6 @@ git push -f decade HEAD:refs/heads/main
 - 首次推送会弹出 GitHub 登录（浏览器授权或粘贴 Personal Access Token），之后 Git 凭据管理器会记住。
 - 如果你的网络需要代理（本机 git 配的是 `http://127.0.0.1:7890`），推送报 TLS/凭据类错误时加一个参数：
   `git -c http.sslBackend=openssl push -f decade HEAD:refs/heads/main`
-（杀毒软件可能对 PyInstaller 产物误报，加信任即可。）
 
 ## 更换形象
 
@@ -146,7 +146,7 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 | sprites/ | 默认外观「深海女仆」精灵图（正面/侧面/背面 各尺寸 + 图标） |
 | sprites/outfits/ | 各套换装精灵（`<id>/` + `manifest.json`）；打包会自动带上 |
 | assets/fonts/ | 内置字体（放 `.ttf/.otf` 即自动加载并优先使用；附得意黑 Smiley Sans，SIL OFL） |
-| docs/ | README 展示图（三套外观 + 花边界面，由 `build/make_showcase.py` 渲染生成） |
+| docs/ | README 展示图（三套外观 + 花边界面） |
 | 启动桌宠.bat | 启动脚本（自动选择 venv 或系统 Python） |
 | requirements.txt | 依赖 |
 | 桌宠.spec | PyInstaller 打包配置（含新依赖收集） |
