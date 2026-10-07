@@ -6,11 +6,13 @@ import zipfile
 BASE = r"D:\图图\大肥鱼\桌宠程序"
 OUT = r"D:\图图\大肥鱼\大肥鱼桌宠_源码.zip"
 
-files = ["桌宠.py", "preprocess.py", "preprocess2.py", "启动桌宠.bat",
+files = ["桌宠.py", "preprocess.py", "preprocess2.py", "preprocess_outfits.py",
+         "启动桌宠.bat", "桌宠.spec",
          "requirements.txt", "README.md", "LICENSE", "icon.ico", ".gitignore"]
-for root, dirs, fs in os.walk(os.path.join(BASE, "sprites")):
-    for f in fs:
-        files.append(os.path.relpath(os.path.join(root, f), BASE).replace(os.sep, "/"))
+for sub in ("sprites", "assets"):
+    for root, dirs, fs in os.walk(os.path.join(BASE, sub)):
+        for f in fs:
+            files.append(os.path.relpath(os.path.join(root, f), BASE).replace(os.sep, "/"))
 
 with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
     for f in files:

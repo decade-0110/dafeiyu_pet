@@ -12,9 +12,23 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 - **互动**：
   - 左键按住：拖拽（会侧身朝向拖动方向，松手会说话）
-  - 单击：蹦跳 + 回嘴（互动台词）+ 弹出 🗨️ 聊天面板
+  - 单击：蹦跳 + 回嘴（互动台词）+ 弹出功能面板（🗨️ 聊天 / 👗 换装）
   - 双击：喂食面板（小鱼干 / 蛋糕 / 棒棒糖 / 团子 / 钻石）
-  - 右键：完整菜单（模式 / 大小 / 喂食 / 说句话 / 显示/隐藏 / 鼠标穿透 / 置顶 / 开机自启 / 退出；托盘右键是同款菜单，穿透后可从托盘解除）
+  - 右键：完整菜单（模式 / 大小 / 换装 / 喂食 / 说句话 / 显示/隐藏 / 鼠标穿透 / 置顶 / 开机自启 / 退出；托盘右键是同款菜单，穿透后可从托盘解除）
+
+- **换装（新增）**：「深海女仆」（最初的深蓝连衣裙形象）之外，还有「雪绒斗篷」「鲸鱼头套」两套三视图衣服，左右键菜单里都能切，切换有交叉淡化，选择记在 `config.json` 的 `outfit` 字段里，下次启动自动穿上
+
+- **蓝白花边界面（新增）**：右键菜单、功能面板、喂食面板、换装面板、聊天输入框、说话气泡统一换成「蓝白雪绒」主题
+  - 浮层外圈是手绘扇形花边 + 白色珠点 + 四角雪花，内层是蓝白渐变圆角卡片
+  - 菜单项悬停/选中是浅蓝底 + 深蓝字，分隔线为淡蓝细线，「设置 Key / 城市 / 天气」带小鲸尾图标
+  - 说话气泡也是花边卡片 + 下方小鲸尾；说话时气泡顶沿还有三片小雪花错相闪烁；心声（思维链）气泡用同款花边的灰调版本
+  - **字体（内置，跟随程序走）**：`assets/fonts/` 里放任意 `.ttf/.otf` 就会**自动加载并优先使用**；随包附带**得意黑（Smiley Sans）**，简体风格圆体、SIL OFL 授权可免费商用/可再分发，覆盖项目全部常用字
+    - 回退链：内置字体 → 幼圆 → 微软雅黑 → 华文细黑 → 系统默认；气泡 24px、菜单与面板 12pt
+    - **加粗方式**：字重统一用 `Bold(700)`（Qt 只在 ≥700 时才对缺粗体字重的字体做合成加粗），文字另外用 `QPainterPath` 轮廓 + 细描边再补一圈厚度，所以小字号下也不显细
+    - **渐变字**：气泡台词与面板标题都是**浅蓝→深蓝竖向渐变**（`TEXT_GRADIENT`，按整条气泡取一次渐变，多行文字连成一体）；心声（思维链）气泡保持灰调纯色，免得和正常台词混在一起
+    - 换字体：把 `.ttf/.otf` 丢进 `assets/fonts/` 覆盖掉即可（文件名随意）；想保留系统幼圆就删掉 `assets/fonts/` 里的文件
+    - 查看最终用的是哪个字体：`python 桌宠.py --font-check`（会打印内置字体、优先链、气泡/菜单字体与字重）
+  - 配色与花边参数集中在 `桌宠.py` 顶部（`LACE_*` / `PANEL_*` / `TEXT_*` / `FONT_DIR` / `CUTE_FONT_CANDIDATES`）
 
 - **台词系统**：日常随机台词 + 互动回嘴 + 思维链心声（灰色斜体括号气泡，小概率冒出），全部取材自社区 DS 梗
 
@@ -47,6 +61,10 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 需要 **Python 3.11+**
 
+> **配置文件**：首次启动会自动生成 `config.json`（含 DeepSeek API Key、位置、外观等），
+> 仓库里**不包含**它（已被 `.gitignore` 忽略），请参考 [config.example.json](config.example.json) 自行创建/填写。
+> Key 也可以在程序里通过右键菜单「设置 Key」填入，不需要手改文件。
+
 ```bash
 pip install -r requirements.txt
 # 或
@@ -77,14 +95,39 @@ pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "
 2. 运行 `python preprocess.py` —— 白底抠图 + 统一高度
 3. 运行 `python preprocess2.py` —— 边缘去污 + 预乘 alpha 缩放出各尺寸精灵
 
+## 给桌宠加一套新衣服
+
+新增的外观放在 `sprites/outfits/<id>/` 里，程序启动时自动发现，菜单里就会出现。
+
+1. 准备一张（或三张）白底三视图原图，**并排三个姿势**：正面 / 侧面 / 背面（左右朝向的侧视图请保持和默认形象一致——默认的「深海女仆」侧面朝左）。
+2. 先出预览检查抠图质量（棋盘格 / 白底 / 深底三行，方便看白边）：
+
+```bash
+python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\to\三视图.png" --preview --out build\outfit_preview
+```
+
+3. 预览没问题就正式生成精灵（会写 `sprites/outfits/my_outfit/` 和 `manifest.json`）：
+
+```bash
+python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\to\三视图.png" --out sprites\outfits
+```
+
+4. 重启桌宠（或右键菜单「换装」里选一下）。
+
+常用参数：`--side-index 2` 指定第几格当侧面（默认 2）、`--flip-side` 给侧面做左右镜像、`--force` 覆盖已有精灵。
+自检：`python 桌宠.py --check` 会列出所有外观、每张精灵尺寸和各档位窗口宽高。
+
 ## 文件说明
 
 | 文件 | 说明 |
 |------|------|
-| 桌宠.py | 主程序（全部逻辑） |
-| preprocess.py | 白底三视图抠图脚本 |
-| preprocess2.py | 精灵边缘去污 + 多尺寸生成脚本 |
-| sprites/ | 精灵图（正面/侧面/背面 各尺寸 + 图标） |
+| 桌宠.py | 主程序（全部逻辑，含换装） |
+| preprocess.py | 白底三视图抠图脚本（遗留版，路径写死） |
+| preprocess2.py | 精灵边缘去污 + 多尺寸生成脚本（遗留版，路径写死） |
+| preprocess_outfits.py | 换装精灵生成脚本（切三视图 + 抠图 + 多尺寸 + manifest） |
+| sprites/ | 默认外观「深海女仆」精灵图（正面/侧面/背面 各尺寸 + 图标） |
+| sprites/outfits/ | 各套换装精灵（`<id>/` + `manifest.json`）；打包会自动带上 |
+| assets/fonts/ | 内置字体（放 `.ttf/.otf` 即自动加载并优先使用；附得意黑 Smiley Sans，SIL OFL） |
 | 启动桌宠.bat | 启动脚本（自动选择 venv 或系统 Python） |
 | requirements.txt | 依赖 |
 | 桌宠.spec | PyInstaller 打包配置（含新依赖收集） |
@@ -104,3 +147,7 @@ pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "
 ## 协议
 
 MIT
+
+## 第三方资源
+
+- **得意黑 Smiley Sans**（`assets/fonts/SmileySans-Oblique.ttf`）—— 由 [Atelier Anchor](https://github.com/atelier-anchor/smiley-sans) 开发，采用 [SIL Open Font License 1.1](https://scripts.sil.org/OFL) 授权，可免费商用、可随程序再分发。
