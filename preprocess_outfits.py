@@ -17,7 +17,11 @@
     sprites/outfits/<id>/icon.png                            # 64 高菜单缩略图
     sprites/outfits/manifest.json
 
-算法沿用 preprocess.py（四角泛洪抠白底）与 preprocess2.py（边缘去白 + 预乘 alpha 缩放）。
+抠图方式：
+    默认「白底泛洪」（沿用 preprocess.py 思路，无需任何模型，快、离线可用）；
+    加 --rembg 改用 rembg 抠图（需 pip install "rembg[cpu]" 才会带上 onnxruntime 后端，
+    首次运行会自动下载 u2net 模型约 170MB）。--rembg auto（默认）会在装了 rembg 时自动启用，
+    失败会自动退回白底泛洪，不会中断。
 """
 import argparse
 import json
@@ -32,6 +36,33 @@ TARGET_H = 340
 ICON_H = 64
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+_rembg_session = None
+
+
+def rembg_available():
+    """rembg 是否可用（模块 + onnxruntime 后端都在）。"""
+    try:
+        import onnxruntime  # noqa: F401
+    except Exception:
+        return False, "没有 onnxruntime 后端（pip install \"rembg[cpu]\"）"
+    try:
+        import rembg  # noqa: F401
+    except Exception as e:
+        return False, f"import rembg 失败：{e!r}"
+    return True, "ok"
+
+
+def rembg_cutout(im):
+    """用 rembg 抠图，返回 RGBA（失败抛异常，由调用方决定是否回退）。"""
+    global _rembg_session
+    from rembg import remove, new_session
+    if _rembg_session is None:
+        _rembg_session = new_session("u2net")
+    out = remove(im.convert("RGB"), session=_rembg_session)
+    if out.mode != "RGBA":
+        out = out.convert("RGBA")
+    return out
 
 
 # ---------------- 基础工具 ----------------
@@ -249,10 +280,21 @@ def premult_resize(im, height):
     return out
 
 
-def extract_figure(im, zone, flip=False):
-    """裁出一格 → 抠白底 → 裁透明边；切歪时用最大连通域兜底 → 去白边；返回 340 高母版。"""
+def extract_figure(im, zone, flip=False, method="flood"):
+    """裁出一格 → 抠图（白底泛洪 或 rembg）→ 裁透明边 → 去白边；返回 340 高母版。
+
+    rembg 失败会自动退回白底泛洪，不会打断整批处理。
+    """
     sub = im.crop((zone[0], 0, zone[1], im.size[1])).convert("RGBA")
-    sub = seal_background(sub)
+    if method == "rembg":
+        try:
+            sub = rembg_cutout(sub)
+            print("    （rembg 抠图完成）")
+        except Exception as e:
+            print(f"    ！rembg 抠图失败，退回白底泛洪：{e!r}")
+            sub = seal_background(sub)
+    else:
+        sub = seal_background(sub)
     bbox = sub.getbbox()
     if bbox is None:
         raise RuntimeError(f"区间 {zone} 抠图后为空")
@@ -320,16 +362,29 @@ def make_preview(views, out_path, label=""):
 
 # ---------------- 主流程 ----------------
 def build_one(src, outfit_id, name, out_root, side_index=1, flip_side=False,
-              preview=False, force=False):
+              preview=False, force=False, rembg="auto"):
     im = Image.open(src)
     im.load()
     zones, cuts, w0 = split_columns(im)
     print(f"[{outfit_id}] 源图 {os.path.basename(src)} {im.size} 切线 {cuts}")
 
+    method = "flood"
+    if rembg in ("auto", "on", True):
+        ok, why = rembg_available()
+        if ok:
+            method = "rembg"
+            print("    抠图方式：rembg（首次会下载 u2net 模型）")
+        elif rembg != "auto":
+            print(f"    ！--rembg 指定了但不可用：{why}；退回白底泛洪")
+        else:
+            print(f"    抠图方式：白底泛洪（rembg 不可用：{why}）")
+    else:
+        print("    抠图方式：白底泛洪")
+
     views = {}
     for idx, vname in enumerate(VIEWS):
         is_side = (idx == side_index - 1)
-        figure = extract_figure(im, zones[idx], flip=(flip_side and is_side))
+        figure = extract_figure(im, zones[idx], flip=(flip_side and is_side), method=method)
         views[vname] = figure
         print(f"    {vname}: {figure.size}  宽高比 {figure.width / figure.height:.3f}")
         if not (0.40 <= figure.width / figure.height <= 0.95):
@@ -388,6 +443,8 @@ def main(argv=None):
     ap.add_argument("--flip-side", action="store_true", help="侧面做左右镜像")
     ap.add_argument("--preview", action="store_true", help="只出棋盘格预览图，不写精灵")
     ap.add_argument("--force", action="store_true", help="覆盖已存在的精灵")
+    ap.add_argument("--rembg", choices=["auto", "on", "off"], default="auto",
+                    help="抠图方式：auto=装了 rembg 就用（默认），on=强制 rembg，off=只用白底泛洪")
     a = ap.parse_args(argv)
 
     out_root = a.out if os.path.isabs(a.out) else os.path.join(HERE, a.out)
@@ -399,7 +456,7 @@ def main(argv=None):
         return 2
     try:
         build_one(src, a.id, a.name or a.id, out_root, side_index=a.side_index,
-                  flip_side=a.flip_side, preview=a.preview, force=a.force)
+                  flip_side=a.flip_side, preview=a.preview, force=a.force, rembg=a.rembg)
     except Exception as e:
         print(f"处理失败：{e}")
         return 1

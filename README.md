@@ -135,6 +135,20 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 4. 重启桌宠（或右键菜单「换装」里选一下）。
 
 常用参数：`--side-index 2` 指定第几格当侧面（默认 2）、`--flip-side` 给侧面做左右镜像、`--force` 覆盖已有精灵。
+
+### 抠图方式：白底泛洪 或 rembg
+
+默认走**白底泛洪**（不需要任何模型，离线可用）。也可以用 [rembg](https://github.com/danielgatis/rembg) 做 AI 抠图，边缘更稳：
+
+```bash
+pip install "rembg[cpu]"        # 注意要带 [cpu]，否则只有 rembg 本体、缺 onnxruntime 后端
+python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\to\三视图.png" --rembg on
+```
+
+- `--rembg auto`（默认）：装了 rembg 就自动用，没装就用白底泛洪
+- `--rembg on`：强制用 rembg（不可用时提示并退回白底泛洪）
+- `--rembg off`：只用白底泛洪
+- 首次运行 rembg 会自动下载 u2net 模型（约 170MB，存到 `~/.u2net/`）；rembg 报错时会自动回退白底泛洪，不会中断整批处理
 自检：`python 桌宠.py --check` 会列出所有外观、每张精灵尺寸和各档位窗口宽高。
 
 ## 文件说明
