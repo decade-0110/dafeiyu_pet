@@ -4,11 +4,11 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 基于三视图素材（正面 / 侧面 / 背面），用 Python + PySide6 实现，无边框透明置顶窗口。
 
-![三套外观](docs/showcase-outfits.png)
+![四套外观](docs/showcase-outfits.png)
 
 ![说话气泡](docs/showcase-bubbles.png)
 
-![蓝白花边菜单与面板](docs/showcase-ui.png)
+![菜单与面板](docs/showcase-ui.png)
 
 ## 功能
 
@@ -188,7 +188,7 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 | assets/fonts/ | 内置字体（放 `.ttf/.otf` 即自动加载并优先使用；附得意黑 Smiley Sans，SIL OFL） |
 | assets/holidays/ | 峰谷判定用的中国法定节假日表（`<年>.json`，仅节假日自然日；用 `fetch_holidays.py` 生成） |
 | fetch_holidays.py | 抓取指定年份节假日并写入 `assets/holidays/` |
-| docs/ | README 展示图（三套外观 + 花边界面） |
+| docs/ | README 展示图（四套外观 + 说话气泡 + 菜单与面板） |
 | 启动桌宠.bat | 启动脚本（自动选择 venv 或系统 Python） |
 | requirements.txt | 依赖 |
 | 桌宠.spec | PyInstaller 打包配置（含新依赖收集） |
