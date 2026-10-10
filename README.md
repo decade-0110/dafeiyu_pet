@@ -22,7 +22,7 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
   - 双击：喂食面板（小鱼干 / 蛋糕 / 棒棒糖 / 团子 / 钻石）
   - 右键：完整菜单（模式 / 大小 / 换装 / 喂食 / 说句话 / 显示/隐藏 / 鼠标穿透 / 置顶 / 开机自启 / 退出；托盘右键是同款菜单，穿透后可从托盘解除）
 
-- **换装（新增）**：「深海女仆」（最初的深蓝连衣裙形象）之外，还有「雪绒斗篷」「鲸鱼头套」两套三视图衣服，左右键菜单里都能切，切换有交叉淡化，选择记在 `config.json` 的 `outfit` 字段里，下次启动自动穿上
+- **换装（新增）**：「深海女仆」（最初的深蓝连衣裙形象）之外，还有「居家毛衣」「鲸鱼头套」「雪绒斗篷」三套三视图衣服，左右键菜单里都能切，切换有交叉淡化，选择记在 `config.json` 的 `outfit` 字段里，下次启动自动穿上
 
 - **蓝白花边界面（新增）**：右键菜单、功能面板、喂食面板、换装面板、聊天输入框、说话气泡统一换成「蓝白雪绒」主题
   - 浮层外圈是手绘扇形花边 + 白色珠点 + 四角雪花，内层是蓝白渐变圆角卡片
@@ -106,7 +106,7 @@ python 桌宠.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "sprites;sprites" --icon icon.ico 桌宠.py
+pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "sprites;sprites" --add-data "assets;assets" --icon icon.ico 桌宠.py
 ```
 
 产物在 `dist/大肥鱼桌宠.exe`，对方双击即用，无需安装 Python。
@@ -123,8 +123,13 @@ git push -f decade HEAD:refs/heads/main
 
 - `git remote -v` 里 `decade` 指向上面那个仓库，`origin` 指向上游原项目 `1190fasheqi/dafeiyu-pet`，别推错。
 - 首次推送会弹出 GitHub 登录（浏览器授权或粘贴 Personal Access Token），之后 Git 凭据管理器会记住。
-- 如果你的网络需要代理（本机 git 配的是 `http://127.0.0.1:7890`），推送报 TLS/凭据类错误时加一个参数：
-  `git -c http.sslBackend=openssl push -f decade HEAD:refs/heads/main`
+- 推送报 TLS / 凭据类错误时，多半是本机 git 的代理（`http://127.0.0.1:7890`）没开或后端不兼容，按情况二选一：
+  ```bash
+  # 代理没开：绕过代理直连
+  git -c http.proxy= -c https.proxy= push decade HEAD:refs/heads/main
+  # 代理开着但报 schannel 凭据错误：换 openssl 后端
+  git -c http.sslBackend=openssl push decade HEAD:refs/heads/main
+  ```
 
 ## 更换形象
 
@@ -173,6 +178,7 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
   `https://gh-proxy.com/https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx`
 - 本仓库的四套外观（含「居家毛衣」）都是用默认的**白底泛洪**生成的——三视图底色干净时它和 rembg 结果几乎一致（实测同一张图侧面仅差 1px），且不需要模型、离线可用；rembg 更适合底色复杂或不干净的素材
 - rembg 报错时会自动回退白底泛洪，不会中断整批处理
+
 自检：`python 桌宠.py --check` 会列出所有外观、每张精灵尺寸和各档位窗口宽高。
 
 ## 文件说明
