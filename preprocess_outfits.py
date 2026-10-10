@@ -41,15 +41,15 @@ _rembg_session = None
 
 
 def rembg_available():
-    """rembg 是否可用（模块 + onnxruntime 后端都在）。"""
+    """rembg 是否可用（模块 + onnxruntime 后端都能导入）。"""
     try:
         import onnxruntime  # noqa: F401
     except Exception:
-        return False, "没有 onnxruntime 后端（pip install \"rembg[cpu]\"）"
+        return False, '没有 onnxruntime 后端，请 pip install "rembg[cpu]" 或 pip install onnxruntime'
     try:
         import rembg  # noqa: F401
     except Exception as e:
-        return False, f"import rembg 失败：{e!r}"
+        return False, f"import rembg 失败：{e!r}（若是 numba/pymatting 报错，换到普通终端再试）"
     return True, "ok"
 
 

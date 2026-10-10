@@ -145,10 +145,15 @@ pip install "rembg[cpu]"        # 注意要带 [cpu]，否则只有 rembg 本体
 python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\to\三视图.png" --rembg on
 ```
 
+> 只装了 `rembg` 而漏掉后端时，程序会直接告诉你缺 onnxruntime（`pip install onnxruntime` 也能补上）。
+
 - `--rembg auto`（默认）：装了 rembg 就自动用，没装就用白底泛洪
 - `--rembg on`：强制用 rembg（不可用时提示并退回白底泛洪）
 - `--rembg off`：只用白底泛洪
-- 首次运行 rembg 会自动下载 u2net 模型（约 170MB，存到 `~/.u2net/`）；rembg 报错时会自动回退白底泛洪，不会中断整批处理
+- 首次运行 rembg 会自动下载 u2net 模型（约 176MB，存到 `~/.u2net/u2net.onnx`）；**国内直连 GitHub 容易超时**，可以手动下载后放到该路径：
+  `https://gh-proxy.com/https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx`
+- 本仓库的四套外观（含「居家毛衣」）都是用默认的**白底泛洪**生成的——三视图底色干净时它和 rembg 结果几乎一致（实测同一张图侧面仅差 1px），且不需要模型、离线可用；rembg 更适合底色复杂或不干净的素材
+- rembg 报错时会自动回退白底泛洪，不会中断整批处理
 自检：`python 桌宠.py --check` 会列出所有外观、每张精灵尺寸和各档位窗口宽高。
 
 ## 文件说明
