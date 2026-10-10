@@ -13,6 +13,7 @@ import random
 import subprocess
 import sys
 import threading
+from datetime import date as _date, datetime, timedelta
 
 def load_config():
     try:
@@ -32,13 +33,14 @@ except:
     GPU_AVAILABLE = False
 
 import requests
-from PySide6.QtCore import Qt, QTimer, QPoint, QPointF, QRectF, QSize
+from PySide6.QtCore import Qt, QTimer, QPoint, QPointF, QRectF, QSize, QEvent
 from PySide6.QtGui import (QPainter, QPixmap, QFont, QColor, QIcon, QFontMetrics,
                            QPolygonF, QGuiApplication, QPen, QBrush, QLinearGradient,
                            QPainterPath, QFontDatabase)
 from PySide6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                                QMessageBox, QInputDialog, QLineEdit, QVBoxLayout,
-                               QHBoxLayout, QPushButton, QFrame, QDialog, QToolButton)
+                               QHBoxLayout, QPushButton, QFrame, QDialog, QToolButton,
+                               QGridLayout, QLabel)
 
 
 
@@ -282,6 +284,248 @@ def check_fonts():
           "字重 %d" % cute_font(pt=UI_FONT_PT).weight())
     del app
     return 0
+
+
+# ==================== DeepSeek 峰谷定价 ====================
+# 规则来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing
+# 北京时间周一至周五（不含中国法定节假日）9:00-12:00、14:00-18:00 为高峰；
+# 其余时段（含周末、法定节假日全天）为空闲，空闲价 = 高峰价 x 0.5。
+PEAK_WINDOWS = ((9 * 60, 12 * 60), (14 * 60, 18 * 60))
+PRICE_FACTOR_OFF = 0.5
+HOLIDAY_DIR = os.path.join(BUNDLE_DIR, "assets", "holidays")
+BALANCE_URL = "https://api.deepseek.com/user/balance"
+RATE_TABLE = (                      # 元 / 百万 tokens（高峰价）
+    {"model": "deepseek-flash", "hit": 0.04, "miss": 2.0, "out": 8.0},
+    {"model": "deepseek-v4-pro", "hit": 0.30, "miss": 9.0, "out": 27.0},
+)
+BALANCE_ERRORS = {
+    "nokey": "先设置 Key 才能查余额",
+    "auth": "Key 好像失效了，重新设一个",
+    "insufficient": "余额不够了，该充值啦",
+    "rate": "问得太勤了，歇一会儿再查",
+    "server": "官方服务好像不太稳，等会儿再试",
+    "timeout": "查余额超时了，网络不太行",
+    "network": "连不上官方接口，检查下网络",
+    "parse": "返回的东西看不懂，稍后再试",
+}
+_holiday_cache = {}
+
+
+def load_holidays(year, path=None):
+    """读取某年节假日表：优先用户放在程序目录的 holidays.json，其次打包快照。
+
+    返回 {"dates": set("YYYY-MM-DD"), "names": {date: name}, "year": int} ；
+    读不到返回 None（调用方按「未知年份」处理，不猜测）。
+    """
+    if year in _holiday_cache:
+        return _holiday_cache[year]
+    candidates = []
+    if path:
+        candidates.append(path)
+    candidates.append(os.path.join(APP_DIR, "holidays.json"))
+    candidates.append(os.path.join(HOLIDAY_DIR, f"{year}.json"))
+    for p in candidates:
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if int(data.get("year", year)) != year:
+                continue
+            days = data.get("holidays", [])
+            dates = {d["date"] for d in days if d.get("date")}
+            names = {d["date"]: d.get("name", "节假日") for d in days if d.get("date")}
+            info = {"dates": dates, "names": names, "year": year,
+                    "source": data.get("source", p)}
+            _holiday_cache[year] = info
+            return info
+        except Exception as e:
+            print(f"[峰谷] 节假日表读取失败 {p}: {e!r}")
+    _holiday_cache[year] = None
+    return None
+
+
+def is_china_holiday(day, holiday_info):
+    """True/False=确定；None=该年没有数据，无法判定。"""
+    if holiday_info is None:
+        return None
+    return day.strftime("%Y-%m-%d") in holiday_info["dates"]
+
+
+def price_band(dt, holiday_info):
+    """返回 (band, reason)：band 为 peak / off / unknown；reason 说明原因。"""
+    if dt.weekday() >= 5:
+        return "off", "周末（全天空闲）"
+    h = is_china_holiday(dt.date(), holiday_info)
+    if h is None:
+        return "unknown", "缺少今年节假日表，按工作日规则估算"
+    if h is True:
+        return "off", f"{holiday_info['names'].get(dt.strftime('%Y-%m-%d'), '节假日')}（全天空闲）"
+    mins = dt.hour * 60 + dt.minute
+    if any(a <= mins < b for a, b in PEAK_WINDOWS):
+        return "peak", "工作日高峰时段"
+    return "off", "工作日非高峰时段"
+
+
+def next_switch(dt, holiday_info):
+    """下一个时段边界：返回 (切换时刻, 切换后的band)。按分钟向前扫，最多 8 天。
+
+    逐分钟判定天然覆盖跨天（次日 0 点、周末起止、节假日首尾）。
+    """
+    cur_band, _ = price_band(dt, holiday_info)
+    cur = dt.replace(second=0, microsecond=0)
+    for _ in range(8 * 24 * 60):
+        cur = cur + timedelta(minutes=1)
+        band, _reason = price_band(cur, holiday_info)
+        if band != cur_band:
+            return cur, band
+    return None, cur_band
+
+
+def fmt_remain(delta):
+    """把时间差写成「2 小时 15 分」这种顺口格式。"""
+    if delta is None:
+        return "—"
+    total = max(0, int(delta.total_seconds()))
+    h, m = divmod(total // 60, 60)
+    if h and m:
+        return f"{h} 小时 {m} 分"
+    if h:
+        return f"{h} 小时"
+    return f"{m} 分"
+
+
+def local_utc_offset_hours():
+    """本机相对 UTC 的小时偏移（北京时间返回 8）。"""
+    off = datetime.now().astimezone().utcoffset() or timedelta()
+    return int(off.total_seconds() // 3600)
+
+
+def price_snapshot(now=None, holidays=None, holiday_path=None):
+    """峰谷时段快照，供气泡与面板共用（纯本地计算，不联网）。"""
+    now = now or datetime.now()
+    info = holidays if holidays is not None else load_holidays(now.year, holiday_path)
+    band, reason = price_band(now, info)
+    nxt, nxt_band = next_switch(now, info)
+    if nxt is not None:
+        # 找边界时可能跨天，重新按边界时刻判定更准
+        nxt_band, _ = price_band(nxt, info)
+    band_text = {"peak": "高峰时段（标准价）", "off": "空闲时段（半价）",
+                 "unknown": "时段未知"}[band]
+    next_text = "—"
+    remain_text = "—"
+    if nxt is not None:
+        if nxt.date() == now.date():
+            next_text = nxt.strftime("%H:%M")
+        else:
+            next_text = nxt.strftime("%m-%d %H:%M")
+        remain_text = fmt_remain(nxt - now)
+    return {
+        "now": now,
+        "offset_hours": local_utc_offset_hours(),
+        "band": band,
+        "band_text": band_text,
+        "reason": reason,
+        "next_at": nxt,
+        "next_band": nxt_band,
+        "next_text": next_text,
+        "remain_text": remain_text,
+        "holiday_year": info["year"] if info else None,
+        "holiday_count": len(info["dates"]) if info else 0,
+        "rates": RATE_TABLE,
+    }
+
+
+def price_say_text(snap):
+    """气泡播报用的一句话（控制在 30 字内）。"""
+    if snap["band"] == "unknown":
+        return "时段算不准，缺今年节假日表"
+    if snap["band"] == "peak":
+        return f"现在是高峰时段，{snap['remain_text']}后半价"
+    return f"现在是空闲时段（半价），{snap['remain_text']}后恢复"
+
+
+# ==================== DeepSeek 余额 ====================
+def parse_balance(payload):
+    """解析 /user/balance 响应为便于展示的结构；字段缺失/非数字都不会抛。"""
+    infos = []
+    for item in (payload or {}).get("balance_infos", []) or []:
+        def _num(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+        infos.append({
+            "currency": item.get("currency", "?"),
+            "total": _num(item.get("total_balance")),
+            "granted": _num(item.get("granted_balance")),
+            "topped": _num(item.get("topped_up_balance")),
+        })
+    return {"is_available": bool((payload or {}).get("is_available", False)), "infos": infos}
+
+
+def money_text(value, currency="CNY"):
+    """金额格式化：￥12.34 / $3.20；拿不到数字时返回「—」。"""
+    if value is None:
+        return "—"
+    sign = {"CNY": "￥", "USD": "$"}.get(currency, f"{currency} ")
+    return f"{sign}{value:,.2f}"
+
+
+def balance_summary_text(parsed):
+    """气泡播报用的一句话。"""
+    if not parsed["infos"]:
+        return "没查到余额信息"
+    infos = parsed["infos"]
+    main = next((i for i in infos if i["currency"] == "CNY"), infos[0])
+    txt = f"余额 {money_text(main['total'], main['currency'])}"
+    return txt + ("，还能撑" if parsed["is_available"] else "，快没啦")
+
+
+def balance_panel_rows(parsed):
+    """面板用：(标签, 值) 列表，多币种时每个币种一组。"""
+    rows = [("可用状态", "充足" if parsed["is_available"] else "不足")]
+    for info in parsed["infos"]:
+        cur = info["currency"]
+        prefix = "" if len(parsed["infos"]) == 1 else f"[{cur}] "
+        rows.append((f"{prefix}总额", money_text(info["total"], cur)))
+        rows.append((f"{prefix}充值余额", money_text(info["topped"], cur)))
+        if info["granted"]:
+            rows.append((f"{prefix}赠送余额", money_text(info["granted"], cur)))
+    return rows
+
+
+def fetch_balance(key, timeout=10):
+    """请求余额接口。返回 (ok, parsed 或 错误码字符串)。"""
+    if not key:
+        return False, "nokey"
+    try:
+        r = requests.get(BALANCE_URL, headers={
+            "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+            "User-Agent": "dafeiyu-pet/1.0",
+        }, timeout=timeout)
+    except requests.exceptions.Timeout:
+        return False, "timeout"
+    except Exception as e:
+        print("[余额] 请求失败:", repr(e))
+        return False, "network"
+    if r.status_code == 200:
+        try:
+            return True, parse_balance(r.json())
+        except Exception as e:
+            print("[余额] 解析失败:", repr(e))
+            return False, "parse"
+    if r.status_code == 401:
+        return False, "auth"
+    if r.status_code == 402:
+        return False, "insufficient"
+    if r.status_code == 429:
+        return False, "rate"
+    if 500 <= r.status_code < 600:
+        return False, "server"
+    print(f"[余额] 未预期状态码 {r.status_code}: {r.text[:200]}")
+    return False, "server"
 
 
 def draw_lace_frame(p, rect, margin=LACE_MARGIN, radius=16, radius_outer=22,
@@ -632,13 +876,24 @@ class LacePanel(QWidget):
                            gradient=(TEXT_GRADIENT, (r.top(), r.bottom())))
         p.end()
 
+    def content_max_height(self):
+        """内容区高度上限：按钮面板一行即可；文字面板可覆盖以放开。"""
+        return 44
+
+    def content_max_width(self):
+        """内容区宽度上限：文字面板可覆盖以限制换行宽度。"""
+        return 0                     # 0 = 不限制
+
     def finish_layout(self):
         """算好尺寸并把标题 / 关闭键 / 内容摆进花边环里。"""
         inner = LACE_MARGIN - LACE_INSET
         if self.lay is not None:
             self.lay.activate()          # 重建按钮后先结算布局，sizeHint 才是新尺寸
         cw = max(48, self.content.sizeHint().width())
-        ch = min(44, max(24, self.content.sizeHint().height()))
+        cap = self.content_max_width()
+        if cap:
+            cw = min(cap, cw)
+        ch = min(self.content_max_height(), max(24, self.content.sizeHint().height()))
         title_w = self.header.sizeHint().width() + 16
         self.setFixedSize(cw + inner * 2, ch + 24 + inner * 2)
         self.header.setGeometry(inner + 14, inner + 5, title_w, 16)
@@ -661,6 +916,162 @@ class LacePanel(QWidget):
         self.move(px, py)
         self.show()
         self.raise_()
+
+
+class InfoPanel(LacePanel):
+    """通用信息面板：一行行「标签 + 值」，支持每行着色与底部小字。
+
+    定价时段面板与余额面板都用它。为了尺寸稳定，这里**不用 Qt 布局引擎**：
+    直接按字号算宽度/高度，并用 setGeometry 显式摆放每个 QLabel。
+    （手动摆放 + 动态重建控件的组合下，sizeHint 不可靠，踩过坑。）
+    """
+
+    ROW_PT = 10
+    FOOT_PT = 8
+    ROW_GAP = 4
+
+    def __init__(self, parent=None, title=""):
+        super().__init__(parent, title=title)
+        self.rows = []                # [(label, value, color), ...]
+        self._row_widgets = []        # [(QLabel, QLabel), ...]
+        self._footer_text = ""
+        self._footer = QLabel(self.content)
+        self._footer.setWordWrap(True)
+        self._footer.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._footer.setStyleSheet(
+            "QLabel{color:%s;font-family:%s;background:transparent;}"
+            % (TEXT_MUTED, ui_font_chain()))
+        self._footer.hide()
+        self._row_font = cute_font(pt=self.ROW_PT, bold=False)
+        self._foot_font = cute_font(pt=self.FOOT_PT, bold=False)
+        self._footer.setFont(self._foot_font)
+
+    def content_max_height(self):
+        return 9999                   # 由 measure() 精确算，不再用基类的 44px 上限
+
+    def rebuild(self, rows, footer=""):
+        """rows: [(标签, 值)] 或 [(标签, 值, 颜色)]；footer: 底部小字。"""
+        for pair in self._row_widgets:
+            for w in pair:
+                w.setParent(None)
+                w.deleteLater()
+        self._row_widgets = []
+        self.rows = []
+        for row in rows:
+            label, value = row[0], row[1]
+            color = row[2] if len(row) > 2 and row[2] else TEXT_DARK
+            lw = QLabel(str(label), self.content)
+            lw.setFont(self._row_font)
+            lw.setStyleSheet("QLabel{color:%s;background:transparent;}" % TEXT_MUTED)
+            vw = QLabel(str(value), self.content)
+            vw.setFont(self._row_font)
+            vw.setStyleSheet("QLabel{color:%s;background:transparent;}" % color)
+            # 动态新建的控件必须显式可见/置顶：面板已经 show 过时，新子控件不一定会被重绘
+            lw.setVisible(True)
+            vw.setVisible(True)
+            self._row_widgets.append((lw, vw))
+            self.rows.append((str(label), str(value), color))
+        self._footer_text = footer or ""
+        self._footer.setText(self._footer_text)
+        self._footer.setVisible(bool(self._footer_text))
+        self.finish_layout()
+        for pair in self._row_widgets:
+            for w in pair:
+                w.raise_()
+        self._footer.raise_()
+
+    def _extent(self, rows):
+        """按字号算出 (表宽, 表高, 底部小字宽, 底部小字高)。"""
+        rfm = QFontMetrics(self._row_font)
+        ffm = QFontMetrics(self._foot_font)
+        lw = max([rfm.horizontalAdvance(r[0]) for r in rows] or [40])
+        vw = max([rfm.horizontalAdvance(r[1]) for r in rows] or [40])
+        tw = lw + vw + 20
+        th = rfm.height() * len(rows) + self.ROW_GAP * max(0, len(rows) - 1)
+        fw = fh = 0
+        if self._footer_text:
+            fw = min(380, max(200, tw + 24))
+            fh = ffm.boundingRect(0, 0, fw, 4000, int(Qt.TextFlag.TextWordWrap),
+                                  self._footer_text).height()
+        return tw, th, fw, fh
+
+    def finish_layout(self):
+        inner = LACE_MARGIN - LACE_INSET
+        tw, th, fw, fh = self._extent(self.rows)
+        cw = max(tw, fw, 140)
+        ch = th + (fh + 10 if fh else 0)
+        self.setFixedSize(int(cw + inner * 2), int(ch + 24 + inner * 2))
+        title_w = self.header.sizeHint().width() + 16
+        self.header.setGeometry(inner + 14, inner + 5, title_w, 16)
+        self.close_btn.move(self.width() - inner - 26, inner + 3)
+        self.content.setGeometry(inner, inner + 24, int(cw), int(ch))
+
+        rfm = QFontMetrics(self._row_font)
+        y = 0
+        for lw, vw in self._row_widgets:
+            lw.setGeometry(0, y, int(cw * 0.55), rfm.height())
+            vw.setGeometry(int(cw * 0.45), y, int(cw * 0.55), rfm.height())
+            y += rfm.height() + self.ROW_GAP
+        if self._footer_text:
+            self._footer.setGeometry(0, int(th + 8), int(cw), int(fh) + 2)
+
+
+class PricingPanel(InfoPanel):
+    """峰谷定价面板：当前时段 + 倒计时 + 单价表。"""
+
+    def __init__(self):
+        super().__init__(None, title="峰谷时段")
+
+    def show_snapshot(self, snap):
+        band_color = {"peak": "#c2410c", "off": "#1f7a4d", "unknown": TEXT_MUTED}[snap["band"]]
+        rows = [
+            ("当前时段", snap["band_text"], band_color),
+            ("本机时间", snap["now"].strftime("%Y-%m-%d %H:%M"), None),
+            ("时区", "UTC%+d（按本机时间判定）" % snap["offset_hours"], None),
+            ("距今切换", ("还有 %s → %s" % (snap["remain_text"], snap["next_text"]))
+             if snap["next_at"] else "—", None),
+            ("日期说明", snap["reason"], None),
+        ]
+        factor = PRICE_FACTOR_OFF if snap["band"] == "off" else 1.0
+        price_color = LACE_DEEP if snap["band"] == "off" else TEXT_DARK
+        for rate in snap["rates"]:
+            rows.append((rate["model"], "%s / %s / %s" % (
+                _rate_text(rate["hit"], factor),
+                _rate_text(rate["miss"], factor),
+                _rate_text(rate["out"], factor)), price_color))
+        head = "元/百万 tokens，依次为 命中 / 未命中 / 输出；"
+        if snap["holiday_year"]:
+            footer = (head + "空闲价 = 高峰价 x %g。节假日表 %d 年（%d 天），官方改价后需更新程序内置价目表。"
+                      % (PRICE_FACTOR_OFF, snap["holiday_year"], snap["holiday_count"]))
+        else:
+            footer = (head + "空闲价 = 高峰价 x %g。没有今年的节假日表，上面按「工作日规则」估算；"
+                      "运行 fetch_holidays.py --year <年> 可生成。" % PRICE_FACTOR_OFF)
+        self.rebuild(rows, footer)
+
+
+class BalancePanel(InfoPanel):
+    """API 余额面板。"""
+
+    def __init__(self):
+        super().__init__(None, title="API 余额")
+
+    def show_balance(self, parsed, footer=""):
+        color = "#1f7a4d" if parsed["is_available"] else "#c2410c"
+        rows = [(k, v, color if k == "可用状态" else None)
+                for k, v in balance_panel_rows(parsed)]
+        self.rebuild(rows, footer)
+
+    def show_error(self, code):
+        msg = BALANCE_ERRORS.get(code, "查询失败，稍后再试")
+        self.rebuild([("状态", msg, "#c2410c")], "点菜单「查看余额」重试。")
+
+
+def _rate_text(value, factor):
+    """单价按系数折算出当前生效价，保留合适的位数。"""
+    v = value * factor
+    if v >= 1:
+        return ("%.1f" % v).rstrip("0").rstrip(".")
+    return ("%.3f" % v).rstrip("0").rstrip(".")
 
 
 LINES = [
@@ -1022,7 +1433,9 @@ class PetWindow(QWidget):
             "y": None,
             "ds_api_key": "",
             "city": "汕头",
-            "outfit": DEFAULT_OUTFIT
+            "outfit": DEFAULT_OUTFIT,
+            "balance_cooldown": 60,      # 秒：两次余额查询的最小间隔
+            "holiday_override": "",      # 可填自定义节假日表 json 路径，留空=自动找
     })
         
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
@@ -1093,6 +1506,7 @@ class PetWindow(QWidget):
         self.chat_history = []  # 对话历史
         self.max_history = 40   # 最多记录40条
         self._say_queue = []    # 后台线程→主线程的气泡消息队列
+        self._panel_queue = []  # 后台线程→主线程的面板数据队列
         
         # 聊天暂停标志
         self.chat_paused = False
@@ -1101,6 +1515,10 @@ class PetWindow(QWidget):
         self.function_panel = FunctionPanel(self)
         self.food_panel = FoodPanel(self.on_food)
         self.outfit_panel = OutfitPanel(self.set_outfit)
+        self.pricing_panel = PricingPanel()
+        self.balance_panel = BalancePanel()
+        self._balance_result = None      # 上一次成功的余额结果（冷却期内复用）
+        self._balance_at = 0.0           # 上一次查询的时间戳（time.time()）
         self.function_panel.outfit_btn.clicked.connect(self.function_panel._on_outfit_clicked)
         # 单击延迟判定（等双击）：单击=回嘴+弹聊天面板，双击=喂食
         self._click_timer = QTimer(self)
@@ -1365,6 +1783,13 @@ class PetWindow(QWidget):
             for text in self._say_queue:
                 self.say(text)
             self._say_queue.clear()
+
+        # 后台线程取回的余额结果，同样回主线程处理
+        if self._panel_queue:
+            for kind, data in self._panel_queue:
+                if kind == "balance":
+                    self._on_balance_result(data)
+            self._panel_queue.clear()
 
         self.check_system_status()
         
@@ -1632,6 +2057,59 @@ class PetWindow(QWidget):
             print("天气错误:", repr(e))
             self.say("天气获取失败")
 
+    # ---------- 峰谷定价时段 ----------
+    def _show_pricing(self):
+        """峰谷时段：纯本地计算，零联网零延迟。"""
+        snap = price_snapshot(holiday_path=self.cfg.get("holiday_override", "") or None)
+        self.say(price_say_text(snap))
+        self.pricing_panel.show_snapshot(snap)
+        self.pricing_panel.popup_at(self.x() + self.width() / 2, self.y() + BUBBLE_H)
+
+    # ---------- API 余额 ----------
+    def _show_balance(self):
+        """查余额：带冷却与缓存，网络请求放后台线程，结果经 _panel_queue 回主线程。"""
+        key = (self.cfg.get("ds_api_key", "") or "").strip()
+        if not key:
+            self.say(BALANCE_ERRORS["nokey"])
+            self.balance_panel.show_error("nokey")
+            self.balance_panel.popup_at(self.x() + self.width() / 2, self.y() + BUBBLE_H)
+            return
+
+        import time as _time
+        cooldown = max(0, int(self.cfg.get("balance_cooldown", 60) or 0))
+        now = _time.time()
+        if self._balance_result is not None and (now - self._balance_at) < cooldown:
+            # 冷却期内直接复用上次结果，不再打接口
+            self.say(balance_summary_text(self._balance_result))
+            self._popup_balance(self._balance_result)
+            return
+
+        self._balance_at = now
+        self.say("正在查余额…")
+
+        def worker():
+            ok, data = fetch_balance(key)
+            self._panel_queue.append(("balance", data))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _popup_balance(self, parsed):
+        footer = "查询于 %s。余额与赠送额以官方平台为准。" % datetime.now().strftime("%H:%M:%S")
+        self.balance_panel.show_balance(parsed, footer)
+        self.balance_panel.popup_at(self.x() + self.width() / 2, self.y() + BUBBLE_H)
+
+    def _on_balance_result(self, data):
+        """主线程：收到后台线程的余额结果（dict=成功，str=错误码）。"""
+        if isinstance(data, str):                 # 错误码
+            self.say(BALANCE_ERRORS.get(data, "查询失败，稍后再试"))
+            self.balance_panel.show_error(data)
+            self._balance_result = None
+            self.balance_panel.popup_at(self.x() + self.width() / 2, self.y() + BUBBLE_H)
+            return
+        self._balance_result = data
+        self.say(balance_summary_text(data))
+        self._popup_balance(data)
+
     def _geo_city(self, city):
         """中文城市名 -> (lat, lon);支持「城市 区县」组合,定位失败返回 (None, None)。"""
         cache = getattr(self, "_geo_cache", None)
@@ -1692,6 +2170,8 @@ class PetWindow(QWidget):
         m.addAction(m.tail_icon(), "设置 Key", self._set_key_dialog)
         m.addAction(m.tail_icon(), "设置城市", self._set_city_dialog)
         m.addAction(m.tail_icon(), "查看天气", self._get_weather)
+        m.addAction(m.tail_icon(), "查看定价时段", self._show_pricing)
+        m.addAction(m.tail_icon(), "查看余额", self._show_balance)
         m.addSeparator()
         m.addAction("显示/隐藏", self.toggle_visible)
         m.addAction("回到屏幕内", self.snap_into_screen)
@@ -1875,14 +2355,52 @@ def check_appearance():
                       for n in VIEW_NAMES]
             win_w = max(widths) + (int(h * 0.062) + 6) * 2
             print(f"    {label}: 精灵宽 {max(widths)} -> 窗口 {win_w}x{h + BUBBLE_H + MARGIN * 2 + 10}")
+
+    # 峰谷时段快照（纯本地计算，不需要 Key、不联网）
+    print("\n[峰谷时段]")
+    try:
+        snap = price_snapshot()
+        print(f"    当前: {snap['band_text']}（{snap['band']}）— {snap['reason']}")
+        print(f"    本机时间: {snap['now'].strftime('%Y-%m-%d %H:%M:%S')}（UTC{snap['offset_hours']:+d}）")
+        print(f"    距下次切换: {snap['remain_text']} → {snap['next_text']}")
+        print(f"    节假日表: {snap['holiday_year']} 年 {snap['holiday_count']} 天"
+              if snap["holiday_year"] else "    节假日表: 缺（时段判定降级为未知）")
+    except Exception as e:
+        print("    峰谷判定失败:", repr(e))
+        ok = False
+
     print("\n结果:", "OK" if ok else "有问题")
     del app
     return 0 if ok else 1
 
 
+def check_balance():
+    """诊断用：python 桌宠.py --balance-check 真实请求一次余额接口。
+
+    退出码：0 成功；1 没设 Key；2 请求/解析失败。
+    """
+    cfg = load_json(CONFIG_PATH, {})
+    key = (cfg.get("ds_api_key", "") or "").strip()
+    if not key:
+        print("没有配置 ds_api_key，先用右键菜单「设置 Key」填一个")
+        return 1
+    print("正在查询余额…（key 前 8 位：%s…）" % key[:8])
+    ok, data = fetch_balance(key)
+    if not ok:
+        print("查询失败：", BALANCE_ERRORS.get(data, data), f"（错误码 {data}）")
+        return 2
+    print("可用状态:", "充足" if data["is_available"] else "不足")
+    for row in balance_panel_rows(data):
+        print(f"    {row[0]}: {row[1]}")
+    print("气泡播报:", balance_summary_text(data))
+    return 0
+
+
 def main():
     if "--font-check" in sys.argv:
         sys.exit(check_fonts())
+    if "--balance-check" in sys.argv:
+        sys.exit(check_balance())
     if "--check" in sys.argv:
         sys.exit(check_appearance())
     app = QApplication(sys.argv)

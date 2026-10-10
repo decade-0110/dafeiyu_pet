@@ -8,5 +8,7 @@
   "y": null,
   "ds_api_key": "",
   "city": "汕头",
-  "outfit": "base"
+  "outfit": "base",
+  "balance_cooldown": 60,
+  "holiday_override": ""
 }
