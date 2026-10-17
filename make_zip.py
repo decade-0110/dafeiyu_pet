@@ -6,9 +6,9 @@ import zipfile
 BASE = r"D:\图图\大肥鱼\桌宠程序"
 OUT = r"D:\图图\大肥鱼\大肥鱼桌宠_源码.zip"
 
-files = ["桌宠.py", "preprocess.py", "preprocess2.py", "preprocess_outfits.py",
-         "fetch_holidays.py", "启动桌宠.bat", "桌宠.spec",
-         "requirements.txt", "README.md", "LICENSE", "icon.ico",
+files = ["桌宠.py", "preprocess_outfits.py", "fetch_holidays.py",
+         "启动桌宠.bat", "桌宠.spec",
+         "requirements.txt", "README.md", "MAINTENANCE.md", "LICENSE", "icon.ico",
          ".gitignore", ".gitattributes", "config.example.json"]
 for sub in ("sprites", "assets"):
     for root, dirs, fs in os.walk(os.path.join(BASE, sub)):

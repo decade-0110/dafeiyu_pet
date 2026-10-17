@@ -10,6 +10,8 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 ![菜单与面板](docs/showcase-ui.png)
 
+> 二次开发 / 接手维护请看 **[MAINTENANCE.md](MAINTENANCE.md)**（架构地图、配置项、素材流水线、线程模型、排错手册）。
+
 ## 功能
 
 - **三视图行走**：左右走用侧面（自动镜像）、向上走用背面、向下走用正面
@@ -131,23 +133,36 @@ git push -f decade HEAD:refs/heads/main
   git -c http.sslBackend=openssl push decade HEAD:refs/heads/main
   ```
 
-## 更换形象
+## 更换形象（重建默认外观「深海女仆」）
 
-把新的三视图（白底）放到程序目录：
+默认外观的精灵直接住在 `sprites/` 根目录，用 `--flat` 模式重建：
 
-1. 正面.png / 侧面.png / 背面.png（原图）
-2. 运行 `python preprocess.py` —— 白底抠图 + 统一高度
-3. 运行 `python preprocess2.py` —— 边缘去污 + 预乘 alpha 缩放出各尺寸精灵
+```bash
+# 方式 A：一张并排三视图
+python preprocess_outfits.py --id base --name 深海女仆 --src "path\to\三视图.png" --flat --out sprites --force
+
+# 方式 B：三张独立文件（放在同一目录，文件名必须是 正面.png / 侧面.png / 背面.png）
+python preprocess_outfits.py --id base --name 深海女仆 --src-dir "path\to\三视图" --flat --out sprites --force
+```
+
+`--flat` 会把 `正面/侧面/背面.png` + 各尺寸 + `icon.png` 直接写进 `--out` 目录，不建子目录、不写 `manifest.json`。
+建议先加 `--preview --out build\preview` 看棋盘格/白底/深底三行效果，确认没白边再正式生成。
+
+> 侧视图请保持**朝左**（默认外观是这样，程序会在向右走时自动镜像）。
+> 万一素材朝右，加 `--flip-side` 即可。
 
 ## 给桌宠加一套新衣服
 
 新增的外观放在 `sprites/outfits/<id>/` 里，程序启动时自动发现，菜单里就会出现。
 
-1. 准备一张（或三张）白底三视图原图，**并排三个姿势**：正面 / 侧面 / 背面（左右朝向的侧视图请保持和默认形象一致——默认的「深海女仆」侧面朝左）。
+1. 准备白底三视图原图，二选一：**一张并排三视图**（正面 / 侧面 / 背面从左到右），或**三张独立文件**（放同一目录，文件名 `正面.png` / `侧面.png` / `背面.png`）。侧视图朝向要和默认形象一致（朝左）。
 2. 先出预览检查抠图质量（棋盘格 / 白底 / 深底三行，方便看白边）：
 
 ```bash
+# 一张并排图
 python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\to\三视图.png" --preview --out build\outfit_preview
+# 或三张独立文件
+python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src-dir "path\to\三视图" --preview --out build\outfit_preview
 ```
 
 3. 预览没问题就正式生成精灵（会写 `sprites/outfits/my_outfit/` 和 `manifest.json`）：
@@ -158,7 +173,7 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 
 4. 重启桌宠（或右键菜单「换装」里选一下）。
 
-常用参数：`--side-index 2` 指定第几格当侧面（默认 2）、`--flip-side` 给侧面做左右镜像、`--force` 覆盖已有精灵。
+常用参数：`--src-dir` 三张独立文件输入、`--flat` 扁平输出（重建默认外观用）、`--side-index 2` 决定哪一格做镜像、`--flip-side` 给侧面做左右镜像、`--force` 覆盖已有精灵。
 
 ### 抠图方式：白底泛洪 或 rembg
 
@@ -186,15 +201,14 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 | 文件 | 说明 |
 |------|------|
 | 桌宠.py | 主程序（全部逻辑，含换装） |
-| preprocess.py | 白底三视图抠图脚本（遗留版，路径写死） |
-| preprocess2.py | 精灵边缘去污 + 多尺寸生成脚本（遗留版，路径写死） |
-| preprocess_outfits.py | 换装精灵生成脚本（切三视图 + 抠图 + 多尺寸 + manifest） |
+| preprocess_outfits.py | 精灵生成脚本：切三视图 / 抠图（泛洪或 rembg）/ 多尺寸 / manifest；`--flat` 重建默认外观 |
 | sprites/ | 默认外观「深海女仆」精灵图（正面/侧面/背面 各尺寸 + 图标） |
 | sprites/outfits/ | 各套换装精灵（`<id>/` + `manifest.json`）；打包会自动带上 |
 | assets/fonts/ | 内置字体（放 `.ttf/.otf` 即自动加载并优先使用；附得意黑 Smiley Sans，SIL OFL） |
 | assets/holidays/ | 峰谷判定用的中国法定节假日表（`<年>.json`，仅节假日自然日；用 `fetch_holidays.py` 生成） |
 | fetch_holidays.py | 抓取指定年份节假日并写入 `assets/holidays/` |
 | docs/ | README 展示图（四套外观 + 说话气泡 + 菜单与面板） |
+| MAINTENANCE.md | 维护文档：架构、配置项、素材流水线、线程模型、发布与排错 |
 | 启动桌宠.bat | 启动脚本（自动选择 venv 或系统 Python） |
 | requirements.txt | 依赖 |
 | 桌宠.spec | PyInstaller 打包配置（含新依赖收集） |

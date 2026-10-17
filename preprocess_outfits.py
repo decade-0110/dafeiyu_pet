@@ -1,27 +1,42 @@
 # -*- coding: utf-8 -*-
 """
-三视图 -> 桌宠换装精灵（通用版）
+三视图 -> 桌宠精灵（换装外观 / 默认外观通用）
 
 用法：
-    # 先出预览（棋盘格，人工检查抠图质量）
+    # 1) 换装外观：一张并排三视图，先出预览（棋盘格 / 白底 / 深底，人工检查抠图边缘）
     python preprocess_outfits.py --id winter_cape --name 雪绒斗篷 ^
-        --src "..\\1791106417396.jpeg" --preview --out build\\outfit_preview
+        --src "..\\雪绒斗篷.jpeg" --preview --out build\\outfit_preview
 
-    # 确认后正式生成
+    # 2) 确认后正式生成（写 sprites/outfits/<id>/ 与 manifest.json）
     python preprocess_outfits.py --id winter_cape --name 雪绒斗篷 ^
-        --src "..\\1791106417396.jpeg" --out sprites\\outfits --force
+        --src "..\\雪绒斗篷.jpeg" --out sprites\\outfits --force
 
-产物（每套外观自包含，manifest.json 记录名字与可用视图）：
+    # 3) 三张独立文件（旧版 preprocess.py + preprocess2.py 的输入形式）
+    python preprocess_outfits.py --id my_outfit --name 我的新衣服 ^
+        --src-dir "..\\三视图\\"
+
+    # 4) 重建默认外观：扁平写进 sprites/ 根目录（不建子目录、不写 manifest）
+    python preprocess_outfits.py --id base --name 深海女仆 ^
+        --src "..\\深海女仆.jpeg" --flat --out sprites --force
+
+产物（普通模式，每套外观自包含）：
     sprites/outfits/<id>/正面.png / 侧面.png / 背面.png      # 340 高母版
-    sprites/outfits/<id>/正面_187.png ... 背面_306.png       # 三档尺寸
+    sprites/outfits/<id>/正面_187.png ... 背面_306.png       # 三档尺寸（预乘 alpha 缩放）
     sprites/outfits/<id>/icon.png                            # 64 高菜单缩略图
     sprites/outfits/manifest.json
 
+产物（--flat 模式，用于 sprites/ 根目录的默认外观）：
+    <out>/正面.png ... 背面_306.png / icon.png（不写 manifest）
+
 抠图方式：
-    默认「白底泛洪」（沿用 preprocess.py 思路，无需任何模型，快、离线可用）；
+    默认「白底泛洪」（四角/四边反复泛洪补种 + 边缘去白，无需任何模型，快、离线可用）；
     加 --rembg 改用 rembg 抠图（需 pip install "rembg[cpu]" 才会带上 onnxruntime 后端，
-    首次运行会自动下载 u2net 模型约 170MB）。--rembg auto（默认）会在装了 rembg 时自动启用，
+    首次运行会自动下载 u2net 模型约 176MB）。--rembg auto（默认）会在装了 rembg 时自动启用，
     失败会自动退回白底泛洪，不会中断。
+
+历史说明：本脚本已合并旧版 preprocess.py / preprocess2.py 的全部能力
+（白底抠图、边缘去污、预乘 alpha 缩放、三张独立文件输入、默认外观扁平输出），
+那两个脚本已删除。
 """
 import argparse
 import json
@@ -360,13 +375,41 @@ def make_preview(views, out_path, label=""):
     return out_path
 
 
-# ---------------- 主流程 ----------------
-def build_one(src, outfit_id, name, out_root, side_index=1, flip_side=False,
-              preview=False, force=False, rembg="auto"):
+# ---------------- 源图载入 ----------------
+def load_sources(src=None, src_dir=None):
+    """载入三视图来源，返回 (items, cuts)。
+
+    items = [(视图名, PIL.Image, zone)]；zone 是该视图在图片里的横向区间。
+    - src    ：一张并排三视图，用 k-means 切三格
+    - src_dir：目录下的 正面.png / 侧面.png / 背面.png（旧版工作流的输入形式）
+    cuts 仅并排模式有意义，独立文件模式返回 None。
+    """
+    if src_dir:
+        items = []
+        for name in VIEWS:
+            p = os.path.join(src_dir, f"{name}.png")
+            if not os.path.exists(p):
+                raise FileNotFoundError(f"{src_dir} 里缺少 {name}.png")
+            im = Image.open(p)
+            im.load()
+            items.append((name, im, (0, im.width)))
+        return items, None
+
     im = Image.open(src)
     im.load()
-    zones, cuts, w0 = split_columns(im)
-    print(f"[{outfit_id}] 源图 {os.path.basename(src)} {im.size} 切线 {cuts}")
+    zones, cuts, _ = split_columns(im)
+    return [(VIEWS[i], im, zones[i]) for i in range(len(VIEWS))], cuts
+
+
+# ---------------- 主流程 ----------------
+def build_one(src, outfit_id, name, out_root, side_index=1, flip_side=False,
+              preview=False, force=False, rembg="auto", src_dir=None, flat=False):
+    items, cuts = load_sources(src=src, src_dir=src_dir)
+    if src_dir:
+        src_desc = f"{src_dir}（三张独立文件）"
+    else:
+        src_desc = f"{os.path.basename(src)} {items[0][1].size} 切线 {cuts}"
+    print(f"[{outfit_id}] 源图 {src_desc}")
 
     method = "flood"
     if rembg in ("auto", "on", True):
@@ -382,24 +425,24 @@ def build_one(src, outfit_id, name, out_root, side_index=1, flip_side=False,
         print("    抠图方式：白底泛洪")
 
     views = {}
-    for idx, vname in enumerate(VIEWS):
-        is_side = (idx == side_index - 1)
-        figure = extract_figure(im, zones[idx], flip=(flip_side and is_side), method=method)
+    for idx, (vname, im_src, zone) in enumerate(items):
+        # 独立文件模式按文件名判断侧面；并排模式沿用 --side-index 指定哪一格做镜像
+        is_side = (vname == "侧面") if src_dir else (idx == side_index - 1)
+        figure = extract_figure(im_src, zone, flip=(flip_side and is_side), method=method)
         views[vname] = figure
         print(f"    {vname}: {figure.size}  宽高比 {figure.width / figure.height:.3f}")
         if not (0.40 <= figure.width / figure.height <= 0.95):
             print(f"    ! {vname} 宽高比异常，检查切格/抠图")
 
+    out_dir = out_root if flat else os.path.join(out_root, outfit_id)
+    os.makedirs(out_dir, exist_ok=True)
+
     if preview:
-        out_dir = os.path.join(out_root, outfit_id)
-        os.makedirs(out_dir, exist_ok=True)
         p = make_preview(views, os.path.join(out_dir, "preview.png"),
                          label=f"{outfit_id} / {name}  (棋盘格 / 白底 / 深底)")
         print(f"    预览 -> {p}")
         return {"id": outfit_id, "name": name, "views": list(VIEWS), "preview": os.path.relpath(p, HERE)}
 
-    out_dir = os.path.join(out_root, outfit_id)
-    os.makedirs(out_dir, exist_ok=True)
     for vname in VIEWS:
         full = os.path.join(out_dir, f"{vname}.png")
         if os.path.exists(full) and not force:
@@ -407,12 +450,16 @@ def build_one(src, outfit_id, name, out_root, side_index=1, flip_side=False,
             continue
         views[vname].save(full)
         for mult, h in SIZES.items():
-            views[vname].resize((max(1, round(views[vname].width * h / views[vname].height)), h),
-                                Image.LANCZOS).save(os.path.join(out_dir, f"{vname}_{h}.png"))
+            # 预乘 alpha 缩放：缩小时不产生白边（旧 preprocess2.py 的核心做法）
+            premult_resize(views[vname], h).save(os.path.join(out_dir, f"{vname}_{h}.png"))
     icon = views["正面"]
-    icon.resize((max(1, round(icon.width * ICON_H / icon.height)), ICON_H),
-                Image.LANCZOS).save(os.path.join(out_dir, "icon.png"))
+    premult_resize(icon, ICON_H).save(os.path.join(out_dir, "icon.png"))
     print(f"    已生成 -> {out_dir}")
+
+    if flat:
+        # 默认外观直接住在 sprites/ 根目录，没有 manifest
+        print("    （--flat 模式：不写 manifest.json）")
+        return {"id": outfit_id, "name": name, "views": list(VIEWS)}
 
     man_path = os.path.join(out_root, "manifest.json")
     man = {"outfits": []}
@@ -432,14 +479,19 @@ def build_one(src, outfit_id, name, out_root, side_index=1, flip_side=False,
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="三视图 -> 桌宠换装精灵")
-    ap.add_argument("--id", required=True, help="外观 id，如 winter_cape")
-    ap.add_argument("--src", required=True, help="三视图原图（白底 png/jpg）")
+    ap = argparse.ArgumentParser(description="三视图 -> 桌宠精灵（换装外观 / 默认外观通用）")
+    ap.add_argument("--id", required=True, help="外观 id，如 winter_cape；默认外观用 base")
+    src_group = ap.add_mutually_exclusive_group(required=True)
+    src_group.add_argument("--src", help="一张并排三视图的原图（白底 png/jpg），自动切三格")
+    src_group.add_argument("--src-dir", help="目录形式：里面的 正面.png / 侧面.png / 背面.png")
     ap.add_argument("--name", default="", help="菜单显示名，如 雪绒斗篷")
     ap.add_argument("--out", default=os.path.join(HERE, "sprites", "outfits"),
-                    help="输出根目录（默认 dafeiyu-pet/sprites/outfits）")
+                    help="输出根目录（普通模式默认 dafeiyu-pet/sprites/outfits；--flat 时可传 sprites）")
+    ap.add_argument("--flat", action="store_true",
+                    help="扁平输出：直接写进 --out 目录、不建 <id> 子目录、不写 manifest（重建默认外观用）")
     ap.add_argument("--side-index", type=int, default=1, choices=[1, 2, 3],
-                    help="第几格当侧面（1/2/3，默认 2）")
+                    help="--side-index 只决定「哪一格做 --flip-side 镜像」（1/2/3，默认 2）；"
+                         "--src-dir 模式下固定镜像 侧面.png")
     ap.add_argument("--flip-side", action="store_true", help="侧面做左右镜像")
     ap.add_argument("--preview", action="store_true", help="只出棋盘格预览图，不写精灵")
     ap.add_argument("--force", action="store_true", help="覆盖已存在的精灵")
@@ -448,15 +500,26 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     out_root = a.out if os.path.isabs(a.out) else os.path.join(HERE, a.out)
-    src = a.src if os.path.isabs(a.src) else os.path.join(os.getcwd(), a.src)
-    if not os.path.exists(src):
-        src = os.path.join(HERE, a.src)
-    if not os.path.exists(src):
-        print(f"找不到源图：{a.src}")
-        return 2
+    if a.src:
+        src = a.src if os.path.isabs(a.src) else os.path.join(os.getcwd(), a.src)
+        if not os.path.exists(src):
+            src = os.path.join(HERE, a.src)
+        if not os.path.exists(src):
+            print(f"找不到源图：{a.src}")
+            return 2
+        src_dir = None
+    else:
+        src = None
+        src_dir = a.src_dir if os.path.isabs(a.src_dir) else os.path.join(os.getcwd(), a.src_dir)
+        if not os.path.isdir(src_dir):
+            src_dir = os.path.join(HERE, a.src_dir)
+        if not os.path.isdir(src_dir):
+            print(f"找不到源目录：{a.src_dir}")
+            return 2
     try:
         build_one(src, a.id, a.name or a.id, out_root, side_index=a.side_index,
-                  flip_side=a.flip_side, preview=a.preview, force=a.force, rembg=a.rembg)
+                  flip_side=a.flip_side, preview=a.preview, force=a.force,
+                  rembg=a.rembg, src_dir=src_dir, flat=a.flat)
     except Exception as e:
         print(f"处理失败：{e}")
         return 1
