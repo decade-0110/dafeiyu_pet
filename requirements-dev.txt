@@ -1,0 +1,4 @@
+# 测试依赖：bubble / outfit / pet_window 是 Qt 模块，完整跑测试需要运行依赖。
+# 纯逻辑用例（holiday / config）本身不需要 Qt。
+-r requirements.txt
+pytest>=8

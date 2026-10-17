@@ -10,6 +10,8 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
 
 ![菜单与面板](docs/showcase-ui.png)
 
+![右键菜单](docs/showcase-menu.png)
+
 > 二次开发 / 接手维护请看 **[MAINTENANCE.md](MAINTENANCE.md)**（架构地图、配置项、素材流水线、线程模型、排错手册）。
 
 ## 功能
@@ -22,21 +24,22 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
   - 左键按住：拖拽（会侧身朝向拖动方向，松手会说话）
   - 单击：蹦跳 + 回嘴（互动台词）+ 弹出功能面板（🗨️ 聊天 / 👗 换装）
   - 双击：喂食面板（小鱼干 / 蛋糕 / 棒棒糖 / 团子 / 钻石）
-  - 右键：完整菜单（模式 / 大小 / 换装 / 喂食 / 说句话 / 显示/隐藏 / 鼠标穿透 / 置顶 / 开机自启 / 退出；托盘右键是同款菜单，穿透后可从托盘解除）
+  - 右键：完整菜单（模式 / 大小 / 换装 / 设置 Key / 设置城市 / 查看天气 / 查看定价时段 / 查看余额 / 显示隐藏 / 回到屏幕内 / 鼠标穿透 / 置顶 / 开机自启 / 退出；托盘右键是同款菜单，穿透后可从托盘解除）
 
 - **换装（新增）**：「深海女仆」（最初的深蓝连衣裙形象）之外，还有「居家毛衣」「鲸鱼头套」「雪绒斗篷」三套三视图衣服，左右键菜单里都能切，切换有交叉淡化，选择记在 `config.json` 的 `outfit` 字段里，下次启动自动穿上
 
 - **蓝白花边界面（新增）**：右键菜单、功能面板、喂食面板、换装面板、聊天输入框、说话气泡统一换成「蓝白雪绒」主题
   - 浮层外圈是手绘扇形花边 + 白色珠点 + 四角雪花，内层是蓝白渐变圆角卡片
-  - 菜单项悬停/选中是浅蓝底 + 深蓝字，分隔线为淡蓝细线，「设置 Key / 城市 / 天气」带小鲸尾图标
+  - 菜单项悬停/选中是浅蓝渐变底 + 深蓝字，左侧 2px 深蓝指示条；按“外观 / 功能 / 窗口 / 行为 / 系统”分组，10pt 小标题 + 淡蓝细线
+  - 菜单项使用 16px 统一线性 SVG 图标（深蓝，悬停浅蓝）；弹出为 130ms 淡入 + 4px 上移，文字颜色有 120ms 过渡；面板带淡蓝灰投影
   - 说话气泡也是花边卡片 + 下方小鲸尾；说话时气泡顶沿还有三片小雪花错相闪烁；心声（思维链）气泡用同款花边的灰调版本
   - **字体（内置，跟随程序走）**：`assets/fonts/` 里放任意 `.ttf/.otf` 就会**自动加载并优先使用**；随包附带**得意黑（Smiley Sans）**，简体风格圆体、SIL OFL 授权可免费商用/可再分发，覆盖项目全部常用字
-    - 回退链：内置字体 → 幼圆 → 微软雅黑 → 华文细黑 → 系统默认；气泡 24px、菜单与面板 12pt
+    - 回退链：内置字体 → 幼圆 → 微软雅黑 → 华文细黑 → 系统默认；气泡 24px、面板 12pt、菜单 11pt
     - **加粗方式**：字重统一用 `Bold(700)`（Qt 只在 ≥700 时才对缺粗体字重的字体做合成加粗），文字另外用 `QPainterPath` 轮廓 + 细描边再补一圈厚度，所以小字号下也不显细
     - **渐变字**：气泡台词与面板标题都是**浅蓝→深蓝竖向渐变**（`TEXT_GRADIENT`，按整条气泡取一次渐变，多行文字连成一体）；心声（思维链）气泡保持灰调纯色，免得和正常台词混在一起
     - 换字体：把 `.ttf/.otf` 丢进 `assets/fonts/` 覆盖掉即可（文件名随意）；想保留系统幼圆就删掉 `assets/fonts/` 里的文件
     - 查看最终用的是哪个字体：`python 桌宠.py --font-check`（会打印内置字体、优先链、气泡/菜单字体与字重）
-  - 配色与花边参数集中在 `桌宠.py` 顶部（`LACE_*` / `PANEL_*` / `TEXT_*` / `FONT_DIR` / `CUTE_FONT_CANDIDATES`）
+  - 配色与花边参数集中在 `bubble.py` 顶部（`LACE_*` / `PANEL_*` / `TEXT_*` / `FONT_DIR` / `CUTE_FONT_CANDIDATES`）；菜单专属参数 `MENU_*` 在 `pet_window.py` 顶部
 
 - **台词系统**：日常随机台词 + 互动回嘴 + 思维链心声（灰色斜体括号气泡，小概率冒出），全部取材自社区 DS 梗
 
@@ -101,14 +104,24 @@ pip install PySide6
 然后双击 `启动桌宠.bat`，或：
 
 ```bash
-python 桌宠.py
+python main.py
+# 兼容旧入口：python 桌宠.py
 ```
+
+### 测试（无头运行，不需要显示器）
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+覆盖峰谷判定、配置读写与默认值合并、气泡台词不重复/冷却；测试不会读写真实的 `config.json`。
 
 ## 打包成独立 exe（可分享给朋友）
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "sprites;sprites" --add-data "assets;assets" --icon icon.ico 桌宠.py
+pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "sprites;sprites" --add-data "assets;assets" --icon icon.ico main.py
 ```
 
 产物在 `dist/大肥鱼桌宠.exe`，对方双击即用，无需安装 Python。
@@ -200,17 +213,28 @@ python preprocess_outfits.py --id my_outfit --name 我的新衣服 --src "path\t
 
 | 文件 | 说明 |
 |------|------|
-| 桌宠.py | 主程序（全部逻辑，含换装） |
+| main.py | 入口：GUI 启动 + `--check` / `--font-check` / `--balance-check` |
+| 桌宠.py | 兼容旧入口（转发到 `main.py`） |
+| pet_window.py | 窗口、动画、菜单、浮层与面板（Qt） |
+| bubble.py | 气泡绘制、字体、台词池、冷却与去重（Qt） |
+| outfit.py | 外观发现、精灵加载、尺寸档位（Qt） |
+| ai_chat.py | DeepSeek 对话请求 |
+| weather.py | 天气查询 |
+| balance.py | 余额查询与展示文本 |
+| holiday.py | 峰谷判定与节假日表（纯标准库，可单测） |
+| config.py | 配置读写、默认值合并、运行路径（纯标准库） |
+| tests/ | pytest 用例（无头运行） |
 | preprocess_outfits.py | 精灵生成脚本：切三视图 / 抠图（泛洪或 rembg）/ 多尺寸 / manifest；`--flat` 重建默认外观 |
 | sprites/ | 默认外观「深海女仆」精灵图（正面/侧面/背面 各尺寸 + 图标） |
 | sprites/outfits/ | 各套换装精灵（`<id>/` + `manifest.json`）；打包会自动带上 |
 | assets/fonts/ | 内置字体（放 `.ttf/.otf` 即自动加载并优先使用；附得意黑 Smiley Sans，SIL OFL） |
 | assets/holidays/ | 峰谷判定用的中国法定节假日表（`<年>.json`，仅节假日自然日；用 `fetch_holidays.py` 生成） |
 | fetch_holidays.py | 抓取指定年份节假日并写入 `assets/holidays/` |
-| docs/ | README 展示图（四套外观 + 说话气泡 + 菜单与面板） |
+| docs/ | README 展示图（四套外观 + 说话气泡 + 菜单与面板 + 右键菜单） |
 | MAINTENANCE.md | 维护文档：架构、配置项、素材流水线、线程模型、发布与排错 |
 | 启动桌宠.bat | 启动脚本（自动选择 venv 或系统 Python） |
 | requirements.txt | 依赖 |
+| requirements-dev.txt | 测试依赖（pytest） |
 | 桌宠.spec | PyInstaller 打包配置（含新依赖收集） |
 
 ## 贡献与致谢

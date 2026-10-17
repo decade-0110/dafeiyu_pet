@@ -12,3 +12,8 @@ dist/
 # Python 缓存
 __pycache__/
 *.pyc
+
+# pytest
+.pytest_cache/
+.pytest-tmp*/
+.pytest-cache-files-*/

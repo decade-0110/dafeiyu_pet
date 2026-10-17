@@ -8,7 +8,9 @@
 ## 1. 快速上手
 
 ```bash
-# 运行（源码方式）
+# 运行（源码方式）：main.py 是入口
+python main.py
+# 兼容旧入口（内部转发到 main.py）
 python 桌宠.py
 # 或双击 启动桌宠.bat（会自动挑 venv / 系统 python）
 
@@ -16,9 +18,14 @@ python 桌宠.py
 python 桌宠.py --check          # 外观清单 + 每张精灵尺寸 + 各档窗口宽高 + 峰谷时段快照
 python 桌宠.py --font-check     # 字体加载情况、候选链、最终选中的字体与字重
 python 桌宠.py --balance-check  # 真实请求一次余额接口（退出码 0 成功 / 1 无 Key / 2 失败）
+
+# 测试（无头，不需要显示器）
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 依赖：`PySide6`、`requests`、`psutil`、`pynvml`（见 `requirements.txt`）；素材脚本额外需要 `Pillow`。
+`bubble.py` 含 Qt 绘制，所以完整测试需要运行依赖；`holiday.py` / `config.py` 本身仍是纯标准库，见第 13 节。
 
 > `pynvml` 会打印 `FutureWarning: The pynvml package is deprecated`，这是上游包改名提示，**不影响运行**，要消除可换 `nvidia-ml-py`。
 
@@ -28,7 +35,19 @@ python 桌宠.py --balance-check  # 真实请求一次余额接口（退出码 0
 
 ```
 dafeiyu-pet/
-├── 桌宠.py                  # 主程序（单文件，约 2400 行，全部逻辑）
+├── main.py                  # 入口：GUI 启动 + --check / --font-check / --balance-check
+├── 桌宠.py                  # 兼容入口（转发到 main.py）
+├── pet_window.py            # 窗口、动画、菜单、浮层、面板、PetWindow
+├── bubble.py                # 气泡绘制 / 字体 / 台词池 / 冷却 / 去重（Qt）
+├── outfit.py                # 外观发现、精灵加载、尺寸档位（Qt）
+├── ai_chat.py               # DeepSeek 对话请求（无 Qt）
+├── weather.py               # 天气查询（无 Qt）
+├── balance.py               # 余额查询与展示文本（无 Qt）
+├── holiday.py               # 峰谷判定 + 节假日表（纯标准库）
+├── config.py                # 配置读写 + 默认值合并 + 运行路径（纯标准库）
+├── tests/                   # pytest 用例（无头运行）
+├── pytest.ini               # testpaths = tests
+├── requirements-dev.txt     # 测试依赖（运行依赖 + pytest）
 ├── 启动桌宠.bat             # 启动脚本
 ├── config.json              # 运行时生成，含 API Key，已被 .gitignore 忽略
 ├── config.example.json      # 配置模板（入库）
@@ -41,7 +60,7 @@ dafeiyu-pet/
 ├── preprocess_outfits.py    # 精灵生成脚本（唯一入口：抠图 + 多尺寸 + manifest + 扁平输出）
 ├── fetch_holidays.py        # 抓取节假日表
 ├── make_zip.py              # 打源码分享 zip
-├── 桌宠.spec                # PyInstaller 打包配置
+├── 桌宠.spec                # PyInstaller 打包配置（入口 main.py）
 └── MAINTENANCE.md           # 本文件
 ```
 
@@ -64,7 +83,7 @@ dafeiyu-pet/
 
 ## 4. 配置项全表（`config.json`）
 
-首次启动由 `load_json()` 自动创建；缺字段时按 `__init__` 里的默认表补齐。
+首次启动由 `config.load_config()` 按 `config.DEFAULT_CONFIG` 自动创建；缺字段时合并默认值并回写，用户已有的值和未知字段都保留。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -82,19 +101,43 @@ dafeiyu-pet/
 
 ---
 
-## 5. 代码地图（`桌宠.py`）
+## 5. 代码地图
 
-按文件从上到下的顺序：
+按职责拆成以下模块，`桌宠.py` 只剩兼容入口：
+
+| 模块 | 内容 |
+|---|---|
+| `main.py` | 入口与三个自检：`check_appearance()` / `check_fonts()` / `check_balance()` / `main()` |
+| `pet_window.py` | 全部 Qt 控件：`LaceMenu` / `LaceBox` / `LacePanel` / `InfoPanel` / `PricingPanel` / `BalancePanel` / `ChatDialog` / `FunctionPanel` / `FoodPanel` / `OutfitPanel` / `PetWindow` |
+| `bubble.py` | 花边主题、字体、气泡/雪花/鲸尾绘制、台词池 `LINES` / `INNER_LINES` / `REACT_LINES` / `DRAG_LINES` / `FOOD_LINES`、`Cooldown` / `LinePicker` / `is_duplicate` |
+| `outfit.py` | `DEFAULT_OUTFIT` / `VIEW_NAMES` / `SIZE_LEVELS`、`discover_outfits()`、`load_sprites()`、`sprites_at_height()`、换装台词 |
+| `ai_chat.py` | `DS_SYSTEM`、`build_messages()`、`chat_reply()`（纯网络，不碰控件） |
+| `weather.py` | `geocode_city()`、`weather_text()`（纯网络，不碰控件） |
+| `balance.py` | `BALANCE_ERRORS`、`parse_balance()`、`fetch_balance()`、`money_text()`、`balance_summary_text()`、`balance_panel_rows()` |
+| `holiday.py` | `PEAK_WINDOWS` / `PRICE_FACTOR_OFF` / `RATE_TABLE`、`load_holidays()`、`is_china_holiday()`、`price_band()`、`next_switch()`、`fmt_remain()`、`price_snapshot()`、`price_say_text()`、`rate_text()` |
+| `config.py` | `APP_DIR` / `BUNDLE_DIR` / 路径常量、`DEFAULT_CONFIG`、`merge_defaults()`、`load_json()`、`load_config()`、`save_config()` |
+
+`pet_window.py` 内部按从上到下：
 
 | 区块 | 内容 |
 |---|---|
-| 顶部常量 | 路径、`SIZE_LEVELS`、`BUBBLE_H`、`TICK`、外观相关常量、花边主题色 `LACE_*` / `PANEL_*` / `TEXT_*`、字体候选 `CUTE_FONT_CANDIDATES` |
-| 字体层 | `load_bundled_fonts()` `pick_cute_family()` `cute_font()` `ui_font_chain()` `check_fonts()` |
-| 峰谷/余额层 | `load_holidays()` `price_band()` `next_switch()` `price_snapshot()` `parse_balance()` `fetch_balance()` 等（纯函数，便于单测） |
-| 绘制层 | `draw_lace_frame()`（花边）`draw_snowflake()` `tail_path()` `draw_speech_bubble()` `draw_cute_text()`（渐变+描边文字） |
-| 控件层 | `LaceMenu`（花边菜单）、`LaceBox`、`LacePanel`（浮层基类）、`InfoPanel` → `PricingPanel` / `BalancePanel`、`ChatDialog`、`FunctionPanel`、`FoodPanel`、`OutfitPanel` |
-| 主窗口 | `PetWindow`：精灵加载、`tick()` 主循环、`paintEvent()` 绘制、鼠标事件、菜单、各功能 |
-| 入口 | `check_appearance()` `check_balance()` `check_fonts()` `main()` |
+| 顶部常量 | `BUBBLE_H`、`MARGIN`、`SPEED`、`TICK`、`IDLE_SPEECH_COOLDOWN` |
+| 控件层 | 花边菜单 / 浮层基类 / 定价、余额面板 / 聊天框 / 功能、喂食、换装面板 |
+| 主窗口 | `PetWindow`：精灵、`tick()` 主循环、`paintEvent()`、鼠标事件、菜单、各功能；空闲冒泡用 `speech_gate` + `inner_line_picker` / `idle_line_picker` |
+
+### 模块依赖方向
+`main.py` → `pet_window.py` → {`bubble.py`, `outfit.py`, `holiday.py`, `ai_chat.py`, `weather.py`, `balance.py`, `config.py`}；
+`bubble.py` / `outfit.py` 只依赖 `config.py` 的路径，不反向依赖 `pet_window.py`，避免循环导入。
+纯逻辑测试只直接依赖 `holiday.py` / `config.py`。
+
+### 菜单外观
+菜单参数集中在 `pet_window.py` 顶部 `MENU_*`；`LaceMenu` 顶部是 `_MenuHeader` 品牌条，分组用 `add_section()`。
+系统勾选 / 子菜单箭头在 QSS 里用 `image: none` 关掉，由 `paintEvent` 手绘成蓝白线条；菜单文字也由 `paintEvent` 绘制，
+以获得 active item 的 120ms 颜色过渡和灰色退出项。图标是内联 SVG（`MENU_ICON_SVG` + `QSvgRenderer`），高 DPI 自适应。
+
+改菜单间距 / 配色时注意：
+- 别删 `image: none`，否则系统黑色勾/三角会叠在蓝线下面。
+- 自定义分组条比 QMenu 默认分隔线高，`showEvent()` 里会按 `sizeHint()` 再 resize 一次；这是防止最后几项被裁掉的补偿，别删。
 
 ### 绘制顺序（不要改）
 `paintEvent()` 里先画**精灵**，最后调用 `_paint_bubble()`。气泡必须最后画，
@@ -103,7 +146,7 @@ dafeiyu-pet/
 ### 精灵表键
 `self.sprites[(outfit_id, 视图名, 高度)] → QPixmap`；左右朝向由 `self.facing` 单独控制，不进 key。
 `_sprite_key()` 返回 `(outfit, 视图, cur_h)`，`draw_one()` 按此取图。
-改 key 结构时必须同步三处：`_load_sprites`、`_sprite_key`、`draw_one`。
+改 key 结构时必须同步三处：`outfit.load_sprites`、`_sprite_key`、`draw_one`。
 
 ### 外观发现
 `discover_outfits()`：
@@ -214,7 +257,7 @@ python fetch_holidays.py --year 2027      # 写入 assets/holidays/2027.json
 - 其余时段（含周末、法定节假日全天）= 空闲，**空闲价 = 高峰价 × 0.5**
 - 判定按**本机本地时间**，面板上标注 `UTC±n`
 
-代码常量（`桌宠.py` 顶部附近）：
+代码常量（`holiday.py` 顶部）：
 ```python
 PEAK_WINDOWS = ((9*60, 12*60), (14*60, 18*60))   # 分钟
 PRICE_FACTOR_OFF = 0.5
@@ -223,7 +266,8 @@ RATE_TABLE = (  # 元/百万 tokens（高峰价）
     {"model": "deepseek-v4-pro", "hit": 0.30, "miss": 9.0, "out": 27.0},
 )
 ```
-**官方调价或调整时段时，改这三个常量即可**，面板会自动按当前时段折算显示。
+**官方调价或调整时段时，改 `holiday.py` 里这三个常量即可**，面板会自动按当前时段折算显示；
+`tests/test_holiday.py` 会一起验证边界。
 
 ---
 
@@ -232,7 +276,7 @@ RATE_TABLE = (  # 元/百万 tokens（高峰价）
 ```bash
 # exe（单文件）
 pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 ^
-  --add-data "sprites;sprites" --add-data "assets;assets" --icon icon.ico 桌宠.py
+  --add-data "sprites;sprites" --add-data "assets;assets" --icon icon.ico main.py
 # 或直接用仓库里的 桌宠.spec（已包含 sprites/ + assets/）
 pyinstaller --noconfirm 桌宠.spec
 
@@ -241,6 +285,7 @@ python make_zip.py
 ```
 
 新增随包资源时**三处一起改**：`桌宠.spec` 的 `datas`、`make_zip.py` 的文件清单、本文第 2 节目录结构。
+新增纯逻辑模块时，PyInstaller 会自动跟着 `import` 分析；`make_zip.py` 的 `files` 清单要手动加一行。
 
 ---
 
@@ -286,7 +331,8 @@ python make_zip.py
 
 改完代码，收尾前过一遍：
 
-- [ ] `python -m py_compile 桌宠.py preprocess_outfits.py fetch_holidays.py make_zip.py`
+- [ ] `python -m py_compile main.py 桌宠.py pet_window.py bubble.py outfit.py ai_chat.py weather.py balance.py holiday.py config.py preprocess_outfits.py fetch_holidays.py make_zip.py`
+- [ ] `python -m pytest` 全绿（无头运行，不需要显示器）
 - [ ] `python 桌宠.py --check`（外观/尺寸/窗口/时段快照）返回 0
 - [ ] `python 桌宠.py --font-check` 字体正常
 - [ ] 改到素材流水线时：`--preview`、`--rembg off`、`--rembg on`、`--src-dir`、`--flat` 各跑一次
@@ -294,3 +340,28 @@ python make_zip.py
 - [ ] 改到外观/尺寸时：三档大小 × 四个方向都看一下
 - [ ] 新增随包资源：`桌宠.spec`、`make_zip.py`、本文件目录结构三处同步
 - [ ] 不把 `config.json`（含 Key）提交进仓库
+
+---
+
+## 13. 测试（pytest）
+
+测试在**无显示器**环境运行；`bubble.py` 含 Qt 绘制，所以 `requirements-dev.txt` 会装运行依赖，但不会创建窗口。
+
+```bash
+pip install -r requirements-dev.txt   # 运行依赖 + pytest
+python -m pytest                      # 全部用例
+python -m pytest tests/test_holiday.py -q   # 只跑峰谷
+```
+
+| 文件 | 覆盖点 |
+|---|---|
+| `tests/test_holiday.py` | 工作日高峰边界（9/12/14/18 点）、周末、法定节假日、调休补班日（周末仍空闲）、缺当年表降级为 `unknown`、节假日表查找优先级/损坏兜底/缓存、`next_switch()` 跨周末与长假、`price_snapshot()` 字段 |
+| `tests/test_config.py` | 首次创建、缺字段合并并回写、`null`/`false` 不被默认值覆盖、损坏 JSON 不覆盖原文件、未知字段保留、`load_json`/`save_config` 往返、`config.example.json` 与默认值同步 |
+| `tests/test_bubble.py` | 连续两次不重复、单句/空池边界、冷却门（含共享冷却、注入时钟）、`say()` 的天气例外去重 |
+| `tests/test_headless.py` | 子进程里 import `holiday` / `config`，断言没有拉入 `PySide6` / `requests`；再 import `balance` / `ai_chat` / `weather`，断言没有拉入 Qt |
+
+约定：
+- `tests/conftest.py` 把项目根加入 `sys.path`，并在每个用例前后 `clear_holiday_cache()`，避免 `tmp_path` 里的表串味。
+- 配置测试全部用 pytest 的 `tmp_path`，**不读写仓库里的真实 `config.json`**。
+- 时间一律用显式 `datetime` 传参，测试不依赖运行当天的日期或时区。
+- 某些 Windows 沙箱会拦截 pytest 创建的 0700 临时目录；遇到 `tmp_path` 权限错误时，在普通终端跑，或给 pytest 指定可写的 `--basetemp`。

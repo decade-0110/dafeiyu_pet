@@ -3,16 +3,24 @@
 import os
 import zipfile
 
-BASE = r"D:\图图\大肥鱼\桌宠程序"
-OUT = r"D:\图图\大肥鱼\大肥鱼桌宠_源码.zip"
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = HERE
+OUT = os.path.join(os.path.dirname(HERE), "大肥鱼桌宠_源码.zip")
 
-files = ["桌宠.py", "preprocess_outfits.py", "fetch_holidays.py",
+files = ["main.py", "桌宠.py", "pet_window.py", "bubble.py", "outfit.py",
+         "ai_chat.py", "weather.py", "balance.py", "holiday.py", "config.py",
+         "preprocess_outfits.py", "fetch_holidays.py",
          "启动桌宠.bat", "桌宠.spec",
-         "requirements.txt", "README.md", "MAINTENANCE.md", "LICENSE", "icon.ico",
+         "requirements.txt", "requirements-dev.txt", "pytest.ini",
+         "README.md", "MAINTENANCE.md", "LICENSE", "icon.ico",
          ".gitignore", ".gitattributes", "config.example.json"]
-for sub in ("sprites", "assets"):
+for sub in ("sprites", "assets", "tests"):
     for root, dirs, fs in os.walk(os.path.join(BASE, sub)):
+        if "__pycache__" in root or ".pytest_cache" in root:
+            continue
         for f in fs:
+            if f.endswith(".pyc"):
+                continue
             files.append(os.path.relpath(os.path.join(root, f), BASE).replace(os.sep, "/"))
 
 with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
